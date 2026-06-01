@@ -10,7 +10,7 @@
 #         afk --aliases              afk --config
 # ═══════════════════════════════════════════════════════
 
-VERSION="1.3.0"
+VERSION="1.4.0"
 REPO_RAW="https://raw.githubusercontent.com/YOUR_USERNAME/afk/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
@@ -584,6 +584,57 @@ afk_daemon() {
     log_afk "Auto-AFK (idle)" "$(date -d "-${idle_min} minutes" +"%H:%M" 2>/dev/null || date +"%H:%M")" "$(date +"%H:%M")" "${idle_min} min"
   fi
 }
+# ── Install Auto-AFK daemon (--install-daemon) ────────
+install_daemon() {
+  if ! command -v xprintidle &>/dev/null; then
+    echo; red "  ✗ xprintidle is required for auto-AFK."; echo
+    text "    Install it with: sudo apt install xprintidle"; echo; echo
+    return 1
+  fi
+
+  if [[ "$AUTO_AFK_MINUTES" == "0" ]]; then
+    echo; yellow "  ⚠ Auto-AFK is set to 0 (disabled)."; echo
+    text "    Run 'afk --config' to set 'Auto-AFK after X min idle' first."; echo; echo
+    return 1
+  fi
+
+  local systemd_dir="${HOME}/.config/systemd/user"
+  mkdir -p "$systemd_dir"
+
+  cat > "$systemd_dir/afk-daemon.service" << EOF
+[Unit]
+Description=AFK Auto-Daemon Check
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/afk --daemon
+EOF
+
+  cat > "$systemd_dir/afk-daemon.timer" << EOF
+[Unit]
+Description=Run AFK Auto-Daemon every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now afk-daemon.timer 2>/dev/null
+
+  if systemctl --user is-active afk-daemon.timer &>/dev/null; then
+    echo; green "  ✓ Auto-AFK daemon installed and running!"; echo
+    text "  It will check idle time every 5 minutes."; echo
+    text "  Check status: systemctl --user status afk-daemon.timer"; echo; echo
+  else
+    echo; yellow "  ⚠ Timer installed but may not be running."; echo
+    text "  Try manually: systemctl --user enable --now afk-daemon.timer"; echo; echo
+  fi
+}
 
 # ── Interactive configuration ──────────────────────────
 config_wizard() {
@@ -689,6 +740,7 @@ show_help() {
   printf "  %-35s %s\n" "afk --config" "interactive configuration"
   printf "  %-35s %s\n" "afk --update" "update to latest version"
   printf "  %-35s %s\n" "afk --version" "show version"
+  printf "  %-35s %s\n" "afk --install-daemon" "setup auto-AFK background timer"
   echo
 }
 
@@ -713,6 +765,7 @@ while [[ $# -gt 0 ]]; do
     --help|-h)     show_help; exit 0 ;;
     --msg|-m)      shift; MSG_CUSTOM="${1:-}"; shift; continue ;;
     --daemon|-d)   afk_daemon; exit 0 ;;
+    --install-daemon) install_daemon; exit 0 ;;
     *)             break ;;
   esac
   shift
