@@ -70,7 +70,7 @@ afk --msg "brb"           # With a custom note
 | `afk --update` | Update to the latest version |
 | `afk --version` | Show version |
 
-## Quick Aliases
+## ⚡ Quick Aliases
 Preconfigured and customizable:
 
 | Alias | Reason | Duration |
