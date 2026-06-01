@@ -1,0 +1,7 @@
+*.log
+*.afk
+*.tmp
+return.now
+cancelled
+config
+EOF
