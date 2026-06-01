@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 
 # ═══════════════════════════════════════════════════════
-#  afk.sh — Away From Keyboard manager per Ubuntu
-#  Uso: afk [motivo] [minuti]     afk pranzo
-#       afk --status              afk --back
-#       afk --cancel              afk --stats
-#       afk --edit                afk --clean [giorni]
-#       afk --export              afk --update
-#       afk --aliases             afk --config
+#  afk.sh — Away From Keyboard manager for Ubuntu
+#  Usage: afk [reason] [minutes]     afk lunch
+#         afk --status               afk --back
+#         afk --cancel               afk --stats
+#         afk --edit                 afk --clean [days]
+#         afk --export               afk --update
+#         afk --aliases              afk --config
 # ═══════════════════════════════════════════════════════
 
 VERSION="1.3.0"
-REPO_RAW="https://raw.githubusercontent.com/NOMEUTENTE/afk/main/afk.sh"
+REPO_RAW="https://raw.githubusercontent.com/YOUR_USERNAME/afk/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
 CONFIG_FILE="${CONFIG_DIR}/config"
@@ -20,97 +20,97 @@ LOCK_FILE="${CONFIG_DIR}/current.afk"
 SEMAPHORE="${CONFIG_DIR}/return.now"
 CANCEL_FILE="${CONFIG_DIR}/cancelled"
 
-# ── Config di default ──────────────────────────────────
-DEFAULT_MOTIVO="AFK"
-DEFAULT_MINUTI=""
+# ── Default config ─────────────────────────────────────
+DEFAULT_REASON="AFK"
+DEFAULT_MINUTES=""
 
-COL_BORDO="3"        # 0=nero 1=rosso 2=verde 3=giallo 4=blu 5=viola 6=cyan 7=bianco
-COL_TITOLO="6"
-COL_TESTO="7"
-COL_RITORNO="2"
-COL_TIMER="3"
-MOSTRA_SLACK="1"
-MOSTRA_DISCORD="0"
+COLOR_BORDER="3"      # 0=black 1=red 2=green 3=yellow 4=blue 5=purple 6=cyan 7=white
+COLOR_TITLE="6"
+COLOR_TEXT="7"
+COLOR_RETURN="2"
+COLOR_TIMER="3"
+SHOW_SLACK="1"
+SHOW_DISCORD="0"
 LOCK_SCREEN="0"
-AUTO_AFK_MINUTI="0"  # 0 = disabilitato; es. 15 = auto-AFK dopo 15 min di idle
+AUTO_AFK_MINUTES="0"  # 0 = disabled; e.g. 15 = auto-AFK after 15 min of idle
 
-# Alias rapidi: alias:Motivo:Minuti  (separati da ;)
-QUICK_REASONS="pranzo:Pranzo:60;caffe:Caffè:5;riunione:Riunione:;bagno:Bagno:5;telefono:Telefono:;pausa:Pausa:15"
+# Quick aliases: alias:Reason:Minutes  (separated by ;)
+QUICK_REASONS="lunch:Lunch:60;coffee:Coffee:5;meeting:Meeting:;bathroom:Bathroom:5;phone:Phone:;break:Break:15"
 
-# ── Carica config utente se esiste ─────────────────────
+# ── Load user config if exists ─────────────────────────
 mkdir -p "$CONFIG_DIR"
 [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
 
-# ── Helpers colori ─────────────────────────────────────
+# ── Color helpers ──────────────────────────────────────
 cc() { printf "\033[${1}m${2}\033[0m"; }
 B()  { printf "\033[1m%s\033[0m" "$1"; }
 
-bordo()   { cc "0;3${COL_BORDO}" "$1"; }
-titolo()  { cc "1;3${COL_TITOLO}" "$1"; }
-testo()   { cc "0;3${COL_TESTO}" "$1"; }
-ritorno() { cc "1;3${COL_RITORNO}" "$1"; }
-timer_c() { cc "1;3${COL_TIMER}" "$1"; }
-rosso()   { cc "1;31" "$1"; }
-verde()   { cc "1;32" "$1"; }
-giallo()  { cc "1;33" "$1"; }
+border()    { cc "0;3${COLOR_BORDER}" "$1"; }
+title()     { cc "1;3${COLOR_TITLE}" "$1"; }
+text()      { cc "0;3${COLOR_TEXT}" "$1"; }
+return_c()  { cc "1;3${COLOR_RETURN}" "$1"; }
+timer_c()   { cc "1;3${COLOR_TIMER}" "$1"; }
+red()       { cc "1;31" "$1"; }
+green()     { cc "1;32" "$1"; }
+yellow()    { cc "1;33" "$1"; }
 
-# ── Funzioni UI ────────────────────────────────────────
-pulisci_schermo() {
+# ── UI Functions ───────────────────────────────────────
+clear_screen() {
   clear
   tput cup 0 0 2>/dev/null || true
 }
 
-linea()      { bordo "╔══════════════════════════════════════════════╗"; echo; }
-linea_mid()  { bordo "╠══════════════════════════════════════════════╣"; echo; }
-linea_fine() { bordo "╚══════════════════════════════════════════════╝"; echo; }
-riga()       { bordo "║"; printf "  %-44s" "$1"; bordo "║"; echo; }
-riga_kv()    { bordo "║"; printf "  "; titolo "%-10s" "$1"; printf "%-34s" "$2"; bordo "║"; echo; }
-riga_vuota() { bordo "║"; printf "  %-44s" ""; bordo "║"; echo; }
+draw_line()      { border "╔══════════════════════════════════════════════╗"; echo; }
+draw_mid_line()  { border "╠══════════════════════════════════════════════╣"; echo; }
+draw_bot_line()  { border "╚══════════════════════════════════════════════╝"; echo; }
+draw_row()       { border "║"; printf "  %-44s" "$1"; border "║"; echo; }
+draw_kv_row()    { border "║"; printf "  "; title "%-10s" "$1"; printf "%-34s" "$2"; border "║"; echo; }
+draw_empty_row() { border "║"; printf "  %-44s" ""; border "║"; echo; }
 
-banner_afk() {
-  local ora="$1" motivo="$2" minuti="$3" messaggio="${4:-}"
-  pulisci_schermo
+show_afk_banner() {
+  local time="$1" reason="$2" minutes="$3" message="${4:-}"
+  clear_screen
   echo
-  linea
-  bordo "║"; printf "  "; titolo "💤  AFK — Away From Keyboard"; printf "%-18s" ""; bordo "║"; echo
-  linea_mid
-  riga_vuota
-  riga_kv "Motivo:" "$motivo"
-  riga_kv "Dalle:" "$ora"
-  if [[ -n "$minuti" ]]; then
-    local ritorno_ora
-    ritorno_ora=$(date -d "+${minuti} minutes" +"%H:%M" 2>/dev/null)
-    riga_kv "Torno:" "~$ritorno_ora (${minuti} min)"
+  draw_line
+  border "║"; printf "  "; title "💤  AFK — Away From Keyboard"; printf "%-18s" ""; border "║"; echo
+  draw_mid_line
+  draw_empty_row
+  draw_kv_row "Reason:" "$reason"
+  draw_kv_row "From:" "$time"
+  if [[ -n "$minutes" ]]; then
+    local return_time
+    return_time=$(date -d "+${minutes} minutes" +"%H:%M" 2>/dev/null)
+    draw_kv_row "Back:" "~$return_time (${minutes} min)"
   fi
-  if [[ -n "$messaggio" ]]; then
-    riga_kv "Nota:" "$messaggio"
+  if [[ -n "$message" ]]; then
+    draw_kv_row "Note:" "$message"
   fi
-  riga_vuota
-  linea_fine
+  draw_empty_row
+  draw_bot_line
   echo
-  printf "  "; testo "Premi "; B "Invio"; testo " per segnalare il tuo ritorno"; echo
-  printf "  "; testo "(oppure "; B "afk --back"; testo " da un altro terminale)"; echo
+  printf "  "; text "Press "; B "Enter"; text " to report your return"; echo
+  printf "  "; text "(or "; B "afk --back"; text " from another terminal)"; echo
   echo
 }
 
-# ── Notifiche desktop ──────────────────────────────────
-notifica() {
+# ── Desktop notifications ──────────────────────────────
+notify() {
   command -v notify-send &>/dev/null || return
   notify-send --urgency="$1" --icon="$2" "$3" "$4" 2>/dev/null
 }
 
-notifica_afk() {
-  local corpo="Motivo: $1 | Dalle $2"
-  [[ -n "$3" ]] && corpo+=" | Torno tra ${3} min"
-  notifica normal user-away "AFK — Away From Keyboard" "$corpo"
+notify_afk() {
+  local body="Reason: $1 | From $2"
+  [[ -n "$3" ]] && body+=" | Back in ${3} min"
+  notify normal user-away "AFK — Away From Keyboard" "$body"
 }
 
-notifica_ritorno() {
-  notifica normal user-available "Bentornato!" "Tornato alle $1 (AFK dalle $2, durata $3)"
+notify_return() {
+  notify normal user-available "Welcome back!" "Returned at $1 (AFK since $2, duration $3)"
 }
 
-notifica_timer_scaduto() {
-  notifica critical appointment-soon "Timer AFK scaduto!" "Erano $1 minuti — sei ancora via?"
+notify_timer_expired() {
+  notify critical appointment-soon "AFK timer expired!" "It was $1 minutes — are you still away?"
 }
 
 # ── Lock screen ────────────────────────────────────────
@@ -125,10 +125,10 @@ lock_screen_if() {
   fi
 }
 
-# ── Stato app (Slack) ──────────────────────────────────
-imposta_stato_slack() {
-  local motivo="$1"
-  [[ "$MOSTRA_SLACK" != "1" ]] && return
+# ── App status (Slack) ─────────────────────────────────
+set_slack_status() {
+  local reason="$1"
+  [[ "$SHOW_SLACK" != "1" ]] && return
   command -v xdotool &>/dev/null || return
 
   local slack_win
@@ -139,25 +139,22 @@ imposta_stato_slack() {
   sleep 0.3
   xdotool key --window "$slack_win" ctrl+shift+y 2>/dev/null
   sleep 0.5
-  xdotool type --window "$slack_win" --delay 50 "$motivo" 2>/dev/null
+  xdotool type --window "$slack_win" --delay 50 "$reason" 2>/dev/null
   sleep 0.3
   xdotool key --window "$slack_win" Return 2>/dev/null
 }
 
 # ── Idle detection (auto-AFK) ──────────────────────────
 get_idle_ms() {
-  # Prova xprintidle (più affidabile)
   if command -v xprintidle &>/dev/null; then
     xprintidle 2>/dev/null
     return
   fi
-  # Fallback: leggi da /proc per X11
   local idle_file="/tmp/.X11-unix"
   if [[ -d "$idle_file" ]]; then
     local xdisplay="${DISPLAY:-:0}"
     local xss_info
     xss_info=$(xdotool getactivewindow getwindowfocus 2>/dev/null)
-    # xdotool non dà idle, prova XScreenSaver
     if command -v xset &>/dev/null; then
       xset q 2>/dev/null | grep "timeout" | awk '{print $2}'
       return
@@ -172,36 +169,36 @@ get_idle_min() {
   echo $(( idle_ms / 60000 ))
 }
 
-# ── Lock file (stato AFK corrente) ────────────────────
-scrivi_lock() {
+# ── Lock file (current AFK status) ────────────────────
+write_lock() {
   echo "$$|$(date +%s)|$(date +%H:%M)|${1}|${2:-}|${3:-}" > "$LOCK_FILE"
 }
 
-leggi_lock() {
+read_lock() {
   [[ -f "$LOCK_FILE" ]] || return 1
-  IFS='|' read -r LOCK_PID LOCK_EPOCH LOCK_START LOCK_MOTIVO LOCK_MINUTI LOCK_TPID < "$LOCK_FILE" 2>/dev/null || return 1
+  IFS='|' read -r LOCK_PID LOCK_EPOCH LOCK_START LOCK_REASON LOCK_MINUTES LOCK_TPID < "$LOCK_FILE" 2>/dev/null || return 1
 }
 
-lock_attivo() {
-  leggi_lock || return 1
+is_lock_active() {
+  read_lock || return 1
   kill -0 "$LOCK_PID" 2>/dev/null || { rm -f "$LOCK_FILE"; return 1; }
   return 0
 }
 
-rimuovi_lock() {
+remove_lock() {
   rm -f "$LOCK_FILE"
 }
 
 # ── Quick reasons ──────────────────────────────────────
-espandi_quick_reason() {
+expand_quick_reason() {
   local input="$1"
   local IFS=$';'
   local entries=($QUICK_REASONS)
   for entry in "${entries[@]}"; do
-    IFS=':' read -r alias motivo minuti <<< "$entry"
+    IFS=':' read -r alias reason minutes <<< "$entry"
     if [[ "$input" == "$alias" ]]; then
-      QUICK_MOTIVO="$motivo"
-      QUICK_MINUTI="$minuti"
+      QUICK_REASON="$reason"
+      QUICK_MINUTES="$minutes"
       return 0
     fi
   done
@@ -210,14 +207,14 @@ espandi_quick_reason() {
 
 # ── Log ────────────────────────────────────────────────
 log_afk() {
-  local motivo="$1" inizio="$2" fine="$3" durata="$4"
-  local data
-  data=$(date +"%Y-%m-%d")
-  echo "${data}|${inizio}|${fine}|${durata}|${motivo}" >> "$LOG_FILE"
+  local reason="$1" start="$2" end="$3" duration="$4"
+  local date
+  date=$(date +"%Y-%m-%d")
+  echo "${date}|${start}|${end}|${duration}|${reason}" >> "$LOG_FILE"
 }
 
-# ── Calcola durata ─────────────────────────────────────
-calcola_durata() {
+# ── Calculate duration ─────────────────────────────────
+calculate_duration() {
   local t1 t2 diff h m
   t1=$(date -d "today $1" +%s 2>/dev/null) || { echo "?"; return; }
   t2=$(date -d "today $2" +%s 2>/dev/null) || { echo "?"; return; }
@@ -228,34 +225,33 @@ calcola_durata() {
   [[ $h -gt 0 ]] && echo "${h}h ${m}min" || echo "${m} min"
 }
 
-# ── Conto alla rovescia ────────────────────────────────
+# ── Countdown timer ────────────────────────────────────
 timer_countdown() {
   local secs=$(( $1 * 60 ))
   trap 'return 0' TERM 2>/dev/null || true
   while [[ $secs -gt 0 ]]; do
     local mm=$(( secs / 60 ))
     local ss=$(( secs % 60 ))
-    printf "\r  "; timer_c "$(printf 'Tempo rimanente: %02d:%02d' "$mm" "$ss")"; printf "   "
+    printf "\r  "; timer_c "$(printf 'Time remaining: %02d:%02d' "$mm" "$ss")"; printf "   "
     sleep 1 || break
     (( secs-- ))
   done
   if [[ $secs -le 0 ]]; then
-    printf "\r  "; rosso "⏰ Tempo scaduto!"; printf "                    \n"
-    notifica_timer_scaduto "$1"
+    printf "\r  "; red "⏰ Time's up!"; printf "                    \n"
+    notify_timer_expired "$1"
   fi
 }
 
-# ── Stato corrente (--status) ─────────────────────────
-mostra_status() {
-  if ! lock_attivo; then
+# ── Current status (--status) ──────────────────────────
+show_status() {
+  if ! is_lock_active; then
     echo
-    testo "  Non sei attualmente AFK."; echo
-    # Mostra idle time se disponibile
-    if [[ "$AUTO_AFK_MINUTI" != "0" ]] || command -v xprintidle &>/dev/null; then
+    text "  You are not currently AFK."; echo
+    if [[ "$AUTO_AFK_MINUTES" != "0" ]] || command -v xprintidle &>/dev/null; then
       local idle_min
       idle_min=$(get_idle_min)
       if [[ "$idle_min" -gt 0 ]]; then
-        testo "  Idle del PC: ${idle_min} min"; echo
+        text "  PC idle: ${idle_min} min"; echo
       fi
     fi
     echo
@@ -270,125 +266,125 @@ mostra_status() {
   [[ $h -gt 0 ]] && elapsed_str="${h}h ${m}min" || elapsed_str="${m} min"
 
   echo
-  linea
-  bordo "║"; printf "  "; titolo "📍  Stato AFK corrente"; printf "%-25s" ""; bordo "║"; echo
-  linea_mid
-  riga_vuota
-  riga_kv "Motivo:" "$LOCK_MOTIVO"
-  riga_kv "Dalle:" "$LOCK_START"
-  riga_kv "Tempo:" "$elapsed_str"
-  if [[ -n "$LOCK_MINUTI" && "$LOCK_MINUTI" =~ ^[0-9]+$ ]]; then
-    local rimasti=$(( LOCK_MINUTI * 60 - elapsed ))
-    if [[ $rimasti -gt 0 ]]; then
-      local rm=$(( rimasti / 60 ))
-      riga_kv "Mancano:" "${rm} min"
+  draw_line
+  border "║"; printf "  "; title "📍  Current AFK Status"; printf "%-25s" ""; border "║"; echo
+  draw_mid_line
+  draw_empty_row
+  draw_kv_row "Reason:" "$LOCK_REASON"
+  draw_kv_row "From:" "$LOCK_START"
+  draw_kv_row "Time:" "$elapsed_str"
+  if [[ -n "$LOCK_MINUTES" && "$LOCK_MINUTES" =~ ^[0-9]+$ ]]; then
+    local remaining=$(( LOCK_MINUTES * 60 - elapsed ))
+    if [[ $remaining -gt 0 ]]; then
+      local rm=$(( remaining / 60 ))
+      draw_kv_row "Remaining:" "${rm} min"
     else
-      riga_kv "Timer:" "Scaduto"
+      draw_kv_row "Timer:" "Expired"
     fi
   fi
-  riga_vuota
-  riga "afk --back    → segnala ritorno"
-  riga "afk --cancel  → annulla senza log"
-  riga_vuota
-  linea_fine
+  draw_empty_row
+  draw_row "afk --back    → report return"
+  draw_row "afk --cancel  → cancel without logging"
+  draw_empty_row
+  draw_bot_line
   echo
 }
 
-# ── Segnala ritorno da altro terminale (--back) ────────
-segnala_ritorno() {
-  if ! lock_attivo; then
-    echo; rosso "  Nessuna sessione AFK attiva."; echo; echo
+# ── Report return from another terminal (--back) ───────
+signal_return() {
+  if ! is_lock_active; then
+    echo; red "  No active AFK session."; echo; echo
     return 1
   fi
   touch "$SEMAPHORE"
-  echo; verde "  ✓ Ritorno segnalato al processo AFK."; echo; echo
+  echo; green "  ✓ Return signaled to the AFK process."; echo; echo
 }
 
-# ── Annulla AFK (--cancel) ────────────────────────────
-annulla_afk() {
-  if ! lock_attivo; then
-    echo; rosso "  Nessuna sessione AFK attiva."; echo; echo
+# ── Cancel AFK (--cancel) ──────────────────────────────
+cancel_afk() {
+  if ! is_lock_active; then
+    echo; red "  No active AFK session."; echo; echo
     return 1
   fi
   touch "$CANCEL_FILE"
   touch "$SEMAPHORE"
-  echo; giallo "  ✗ Sessione AFK annullata (non loggata)."; echo; echo
+  echo; yellow "  ✗ AFK session canceled (not logged)."; echo; echo
 }
 
-# ── Statistiche ────────────────────────────────────────
-mostra_stats() {
-  pulisci_schermo
+# ── Statistics ─────────────────────────────────────────
+show_stats() {
+  clear_screen
   echo
-  linea
-  bordo "║"; printf "  "; titolo "📊  Statistiche AFK"; printf "%-28s" ""; bordo "║"; echo
-  linea_mid
+  draw_line
+  border "║"; printf "  "; title "📊  AFK Statistics"; printf "%-28s" ""; border "║"; echo
+  draw_mid_line
 
   if [[ ! -f "$LOG_FILE" ]] || [[ ! -s "$LOG_FILE" ]]; then
-    riga_vuota
-    riga "Nessun dato registrato ancora."
-    riga_vuota
-    linea_fine
+    draw_empty_row
+    draw_row "No data recorded yet."
+    draw_empty_row
+    draw_bot_line
     echo
     return
   fi
 
-  local totale_sessioni totale_min=0 oggi_min=0 sett_min=0 oggi_sessioni=0
-  totale_sessioni=$(wc -l < "$LOG_FILE")
-  local oggi
-  oggi=$(date +"%Y-%m-%d")
-  local sett_fa
-  sett_fa=$(date -d "7 days ago" +"%Y-%m-%d" 2>/dev/null || date -v-7d +"%Y-%m-%d" 2>/dev/null)
+  local total_sessions total_min=0 today_min=0 week_min=0 today_sessions=0
+  total_sessions=$(wc -l < "$LOG_FILE")
+  local today
+  today=$(date +"%Y-%m-%d")
+  local week_ago
+  week_ago=$(date -d "7 days ago" +"%Y-%m-%d" 2>/dev/null || date -v-7d +"%Y-%m-%d" 2>/dev/null)
 
-  declare -A motivo_min=()
-  declare -A motivo_count=()
+  declare -A reason_min=()
+  declare -A reason_count=()
 
-  while IFS='|' read -r data ora_i ora_f durata motivo; do
-    local h=0 m=0 min_totali
-    if [[ "$durata" =~ ([0-9]+)h ]]; then h="${BASH_REMATCH[1]}"; fi
-    if [[ "$durata" =~ ([0-9]+)\ min ]]; then m="${BASH_REMATCH[1]}"; fi
-    min_totali=$(( h * 60 + m ))
-    totale_min=$(( totale_min + min_totali ))
-    motivo_min["$motivo"]=$(( ${motivo_min["$motivo"]:-0} + min_totali ))
-    motivo_count["$motivo"]=$(( ${motivo_count["$motivo"]:-0} + 1 ))
+  while IFS='|' read -r date time_i time_f duration reason; do
+    local h=0 m=0 total_m
+    if [[ "$duration" =~ ([0-9]+)h ]]; then h="${BASH_REMATCH[1]}"; fi
+    if [[ "$duration" =~ ([0-9]+)\ min ]]; then m="${BASH_REMATCH[1]}"; fi
+    total_m=$(( h * 60 + m ))
+    total_min=$(( total_min + total_m ))
+    reason_min["$reason"]=$(( ${reason_min["$reason"]:-0} + total_m ))
+    reason_count["$reason"]=$(( ${reason_count["$reason"]:-0} + 1 ))
 
-    if [[ "$data" == "$oggi" ]]; then
-      oggi_min=$(( oggi_min + min_totali ))
-      oggi_sessioni=$(( oggi_sessioni + 1 ))
+    if [[ "$date" == "$today" ]]; then
+      today_min=$(( today_min + total_m ))
+      today_sessions=$(( today_sessions + 1 ))
     fi
-    if [[ "$data" > "$sett_fa" || "$data" == "$sett_fa" ]]; then
-      sett_min=$(( sett_min + min_totali ))
+    if [[ "$date" > "$week_ago" || "$date" == "$week_ago" ]]; then
+      week_min=$(( week_min + total_m ))
     fi
   done < "$LOG_FILE"
 
-  local tot_h=$(( totale_min / 60 )) tot_m=$(( totale_min % 60 ))
-  local ogg_h=$(( oggi_min / 60 ))   ogg_m=$(( oggi_min % 60 ))
-  local set_h=$(( sett_min / 60 ))    set_m=$(( sett_min % 60 ))
+  local tot_h=$(( total_min / 60 )) tot_m=$(( total_min % 60 ))
+  local tod_h=$(( today_min / 60 )) tod_m=$(( today_min % 60 ))
+  local wk_h=$(( week_min / 60 ))   wk_m=$(( week_min % 60 ))
 
-  riga_vuota
-  riga_kv "Totali:" "$totale_sessioni sessioni | ${tot_h}h ${tot_m}min"
-  riga_kv "Oggi:" "$oggi_sessioni sessioni | ${ogg_h}h ${ogg_m}min"
-  riga_kv "Settimana:" "${set_h}h ${set_m}min"
-  riga_vuota
+  draw_empty_row
+  draw_kv_row "Totals:" "$total_sessions sessions | ${tot_h}h ${tot_m}min"
+  draw_kv_row "Today:" "$today_sessions sessions | ${tod_h}h ${tod_m}min"
+  draw_kv_row "Week:" "${wk_h}h ${wk_m}min"
+  draw_empty_row
 
-  # ── Per-motivo con grafico ASCII ──
-  if [[ ${#motivo_min[@]} -gt 0 ]]; then
-    linea_mid
-    bordo "║"; printf "  "; titolo "Per motivo"; printf "%-37s" ""; bordo "║"; echo
-    linea_mid
+  # ── Per-reason with ASCII chart ──
+  if [[ ${#reason_min[@]} -gt 0 ]]; then
+    draw_mid_line
+    border "║"; printf "  "; title "By reason"; printf "%-37s" ""; border "║"; echo
+    draw_mid_line
 
     local max_min=0
-    for mot in "${!motivo_min[@]}"; do
-      [[ ${motivo_min[$mot]} -gt $max_min ]] && max_min=${motivo_min[$mot]}
+    for rsn in "${!reason_min[@]}"; do
+      [[ ${reason_min[$rsn]} -gt $max_min ]] && max_min=${reason_min[$rsn]}
     done
 
     local sorted=()
-    for mot in "${!motivo_min[@]}"; do
-      sorted+=("${motivo_min[$mot]}:${mot}")
+    for rsn in "${!reason_min[@]}"; do
+      sorted+=("${reason_min[$rsn]}:${rsn}")
     done
     while IFS= read -r entry; do
       [[ -z "$entry" ]] && continue
       local mins="${entry%%:*}"
-      local mot="${entry#*:}"
+      local rsn="${entry#*:}"
       local bar_len=0
       if [[ $max_min -gt 0 ]]; then
         bar_len=$(( mins * 15 / max_min ))
@@ -402,142 +398,141 @@ mostra_stats() {
       local time_str
       [[ $eh -gt 0 ]] && time_str="${eh}h${em}m" || time_str="${em}m"
 
-      riga_kv "$mot" "$bar $time_str (${motivo_count[$mot]}x)"
+      draw_kv_row "$rsn" "$bar $time_str (${reason_count[$rsn]}x)"
     done < <(printf '%s\n' "${sorted[@]}" | sort -rn)
   fi
 
-  # ── Ultime 5 sessioni ──
-  linea_mid
-  bordo "║"; printf "  "; titolo "Ultime 5 sessioni"; printf "%-30s" ""; bordo "║"; echo
-  linea_mid
+  # ── Last 5 sessions ──
+  draw_mid_line
+  border "║"; printf "  "; title "Last 5 sessions"; printf "%-30s" ""; border "║"; echo
+  draw_mid_line
 
   local count=0
   while IFS='|' read -r _; do count=$(( count + 1 )); done < "$LOG_FILE"
   local skip=$(( count > 5 ? count - 5 : 0 ))
-  while IFS='|' read -r data ora_i ora_f durata motivo; do
+  while IFS='|' read -r date time_i time_f duration reason; do
     [[ $skip -gt 0 ]] && (( skip-- )) && continue
-    riga_vuota
-    riga_kv "Data:" "$data $ora_i → $ora_f"
-    riga_kv "Durata:" "$durata"
-    riga_kv "Motivo:" "$motivo"
+    draw_empty_row
+    draw_kv_row "Date:" "$date $time_i → $time_f"
+    draw_kv_row "Duration:" "$duration"
+    draw_kv_row "Reason:" "$reason"
   done < "$LOG_FILE"
 
-  riga_vuota
-  linea_fine
+  draw_empty_row
+  draw_bot_line
   echo
 }
 
 # ── Export CSV (--export) ──────────────────────────────
-esporta_csv() {
+export_csv() {
   if [[ ! -f "$LOG_FILE" ]] || [[ ! -s "$LOG_FILE" ]]; then
-    echo; testo "  Nessun dato da esportare."; echo; echo
+    echo; text "  No data to export."; echo; echo
     return
   fi
 
   local out_file="${1:-${HOME}/afk_export_$(date +%Y%m%d).csv}"
 
   {
-    echo "Data,Inizio,Fine,Durata,Motivo"
-    while IFS='|' read -r data ora_i ora_f durata motivo; do
-      # Escape virgole nel motivo
-      local mot_esc="${motivo//,/;}"
-      echo "${data},${ora_i},${ora_f},${durata},${mot_esc}"
+    echo "Date,Start,End,Duration,Reason"
+    while IFS='|' read -r date time_i time_f duration reason; do
+      local rsn_esc="${reason//,/;}"
+      echo "${date},${time_i},${time_f},${duration},${rsn_esc}"
     done < "$LOG_FILE"
   } > "$out_file"
 
-  echo; verde "  ✓ Esportato in $out_file"; echo
-  testo "  ($(wc -l < "$LOG_FILE") righe)"; echo; echo
+  echo; green "  ✓ Exported to $out_file"; echo
+  text "  ($(wc -l < "$LOG_FILE") rows)"; echo; echo
 }
 
-# ── Modifica ultima sessione (--edit) ──────────────────
-modifica_ultima() {
+# ── Edit last session (--edit) ─────────────────────────
+edit_last() {
   if [[ ! -f "$LOG_FILE" ]] || [[ ! -s "$LOG_FILE" ]]; then
-    echo; testo "  Nessuna sessione da modificare."; echo; echo
+    echo; text "  No session to edit."; echo; echo
     return
   fi
 
-  local last_line data ora_i ora_f durata motivo_old
+  local last_line date time_i time_f duration reason_old
   last_line=$(tail -1 "$LOG_FILE")
-  IFS='|' read -r data ora_i ora_f durata motivo_old <<< "$last_line"
+  IFS='|' read -r date time_i time_f duration reason_old <<< "$last_line"
 
   echo
-  testo "  Ultima sessione:"; echo
-  testo "    $data $ora_i → $ora_f ($durata) — $motivo_old"; echo
+  text "  Last session:"; echo
+  text "    $date $time_i → $time_f ($duration) — $reason_old"; echo
   echo
-  printf "  "; testo "Nuovo motivo (Invio = mantieni): "; printf " "
-  read -r nuovo_motivo
+  printf "  "; text "New reason (Enter = keep): "; printf " "
+  read -r new_reason
 
-  if [[ -n "$nuovo_motivo" ]]; then
+  if [[ -n "$new_reason" ]]; then
     head -n -1 "$LOG_FILE" > "${LOG_FILE}.tmp"
-    echo "${data}|${ora_i}|${ora_f}|${durata}|${nuovo_motivo}" >> "${LOG_FILE}.tmp"
+    echo "${date}|${time_i}|${time_f}|${duration}|${new_reason}" >> "${LOG_FILE}.tmp"
     mv "${LOG_FILE}.tmp" "$LOG_FILE"
-    echo; verde "  ✓ Motivo aggiornato: $nuovo_motivo"; echo; echo
+    echo; green "  ✓ Reason updated: $new_reason"; echo; echo
   else
-    echo; testo "  Nessuna modifica."; echo; echo
+    echo; text "  No changes."; echo; echo
   fi
 }
 
-# ── Pulizia log (--clean) ─────────────────────────────
-pulisci_log() {
-  local giorni="${1:-90}"
+# ── Clean logs (--clean) ──────────────────────────────
+clean_logs() {
+  local days="${1:-90}"
   if [[ ! -f "$LOG_FILE" ]] || [[ ! -s "$LOG_FILE" ]]; then
-    echo; testo "  Nessun log da pulire."; echo; echo
+    echo; text "  No logs to clean."; echo; echo
     return
   fi
 
-  local limite
-  limite=$(date -d "${giorni} days ago" +"%Y-%m-%d" 2>/dev/null || date -v-${giorni}d +"%Y-%m-%d" 2>/dev/null)
+  local limit
+  limit=$(date -d "${days} days ago" +"%Y-%m-%d" 2>/dev/null || date -v-${days}d +"%Y-%m-%d" 2>/dev/null)
 
-  local rimaste=0 rimosse=0
-  while IFS='|' read -r data _; do
-    if [[ "$data" > "$limite" || "$data" == "$limite" ]]; then
-      rimaste=$(( rimaste + 1 ))
+  local kept=0 removed=0
+  while IFS='|' read -r date _; do
+    if [[ "$date" > "$limit" || "$date" == "$limit" ]]; then
+      kept=$(( kept + 1 ))
     else
-      rimosse=$(( rimosse + 1 ))
+      removed=$(( removed + 1 ))
     fi
   done < "$LOG_FILE"
 
-  if [[ $rimosse -eq 0 ]]; then
-    echo; testo "  Nessuna voce più vecchia di $giorni giorni."; echo; echo
+  if [[ $removed -eq 0 ]]; then
+    echo; text "  No entries older than $days days."; echo; echo
     return
   fi
 
   echo
-  testo "  Saranno rimosse $rimosse voci (più vecchie di $giorni giorni)."; echo
-  testo "  Rimarranno $rimaste voci."; echo
-  printf "  "; testo "Confermi? [s/N] "; printf " "
-  read -r conferma
-  if [[ "$conferma" =~ ^[sSyY]$ ]]; then
+  text "  $removed entries will be removed (older than $days days)."; echo
+  text "  $kept entries will remain."; echo
+  printf "  "; text "Confirm? [y/N] "; printf " "
+  read -r confirm
+  if [[ "$confirm" =~ ^[yY]$ ]]; then
     local tmp="${LOG_FILE}.tmp"
     > "$tmp"
     while IFS= read -r line; do
-      local data="${line%%|*}"
-      if [[ "$data" > "$limite" || "$data" == "$limite" ]]; then
+      local date="${line%%|*}"
+      if [[ "$date" > "$limit" || "$date" == "$limit" ]]; then
         echo "$line" >> "$tmp"
       fi
     done < "$LOG_FILE"
     mv "$tmp" "$LOG_FILE"
-    verde "  ✓ $rimosse voci rimosse."; echo; echo
+    green "  ✓ $removed entries removed."; echo; echo
   else
-    testo "  Annullato."; echo; echo
+    text "  Canceled."; echo; echo
   fi
 }
 
 # ── Self-update (--update) ────────────────────────────
 self_update() {
   echo
-  testo "  Versione attuale: $VERSION"; echo
+  text "  Current version: $VERSION"; echo
 
   local script_path
   script_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
 
   if [[ ! -w "$script_path" ]]; then
-    rosso "  ✗ Non ho i permessi per scrivere $script_path"; echo
-    testo "    Prova: sudo afk --update"; echo; echo
+    red "  ✗ No write permissions for $script_path"; echo
+    text "    Try: sudo afk --update"; echo; echo
     return 1
   fi
 
-  testo "  Scarico ultima versione..."; echo
+  text "  Downloading latest version..."; echo
   local tmp
   tmp=$(mktemp)
 
@@ -546,24 +541,22 @@ self_update() {
   elif command -v wget &>/dev/null; then
     wget -qO "$tmp" "$REPO_RAW" 2>/dev/null
   else
-    rosso "  ✗ Serve curl o wget"; echo; echo
+    red "  ✗ curl or wget required"; echo; echo
     rm -f "$tmp"
     return 1
   fi
 
-  # Verifica che il download sia valido
   if [[ ! -s "$tmp" ]] || ! head -1 "$tmp" | grep -q "bash"; then
-    rosso "  ✗ Download fallito o file non valido"; echo; echo
+    red "  ✗ Download failed or invalid file"; echo; echo
     rm -f "$tmp"
     return 1
   fi
 
-  # Estrai la versione nuova
   local new_ver
   new_ver=$(grep '^VERSION=' "$tmp" | head -1 | grep -oP '"[^"]+"' | tr -d '"')
 
   if [[ "$new_ver" == "$VERSION" ]]; then
-    verde "  ✓ Già all'ultima versione ($VERSION)"; echo; echo
+    green "  ✓ Already up to date ($VERSION)"; echo; echo
     rm -f "$tmp"
     return 0
   fi
@@ -572,153 +565,152 @@ self_update() {
   chmod +x "$script_path"
   rm -f "$tmp"
 
-  verde "  ✓ Aggiornato: $VERSION → $new_ver"; echo
-  testo "  Riavvia afk per usare la nuova versione."; echo; echo
+  green "  ✓ Updated: $VERSION → $new_ver"; echo
+  text "  Restart afk to use the new version."; echo; echo
 }
 
 # ── Auto-AFK daemon (--daemon) ────────────────────────
 afk_daemon() {
-  [[ "$AUTO_AFK_MINUTI" == "0" ]] && return
+  [[ "$AUTO_AFK_MINUTES" == "0" ]] && return
 
   command -v xprintidle &>/dev/null || return
-  lock_attivo && return  # già AFK
+  is_lock_active && return
 
   local idle_min
   idle_min=$(get_idle_min)
 
-  if [[ "$idle_min" -ge "$AUTO_AFK_MINUTI" ]]; then
-    # Auto-AFK!
-    notifica normal user-away "Auto-AFK" "Idle da ${idle_min} min — avvio AFK automatico"
+  if [[ "$idle_min" -ge "$AUTO_AFK_MINUTES" ]]; then
+    notify normal user-away "Auto-AFK" "Idle for ${idle_min} min — starting auto-AFK"
     log_afk "Auto-AFK (idle)" "$(date -d "-${idle_min} minutes" +"%H:%M" 2>/dev/null || date +"%H:%M")" "$(date +"%H:%M")" "${idle_min} min"
   fi
 }
 
-# ── Configurazione interattiva ─────────────────────────
-wizard_config() {
-  pulisci_schermo
+# ── Interactive configuration ──────────────────────────
+config_wizard() {
+  clear_screen
   echo
-  titolo "  ╔══ Configurazione afk.sh ══╗"; echo
+  title "  ╔══ afk.sh Configuration ══╗"; echo
   echo
-  testo "  Lascia vuoto per mantenere il valore attuale."; echo
+  text "  Leave empty to keep current value."; echo
   echo
 
-  read -r -p "  $(testo 'Motivo default')  [${DEFAULT_MOTIVO}]: " inp
-  [[ -n "$inp" ]] && DEFAULT_MOTIVO="$inp"
+  read -r -p "  $(text 'Default reason')  [${DEFAULT_REASON}]: " inp
+  [[ -n "$inp" ]] && DEFAULT_REASON="$inp"
 
-  read -r -p "  $(testo 'Minuti default')  [${DEFAULT_MINUTI:-nessuno}]: " inp
-  [[ -n "$inp" ]] && DEFAULT_MINUTI="$inp"
-
-  echo
-  titolo "  Colori (0=nero 1=rosso 2=verde 3=giallo 4=blu 5=viola 6=cyan 7=bianco)"; echo
-  read -r -p "  $(testo 'Colore bordo')    [${COL_BORDO}]: " inp
-  [[ "$inp" =~ ^[0-7]$ ]] && COL_BORDO="$inp"
-
-  read -r -p "  $(testo 'Colore titolo')   [${COL_TITOLO}]: " inp
-  [[ "$inp" =~ ^[0-7]$ ]] && COL_TITOLO="$inp"
-
-  read -r -p "  $(testo 'Colore testo')    [${COL_TESTO}]: " inp
-  [[ "$inp" =~ ^[0-7]$ ]] && COL_TESTO="$inp"
-
-  read -r -p "  $(testo 'Colore ritorno')  [${COL_RITORNO}]: " inp
-  [[ "$inp" =~ ^[0-7]$ ]] && COL_RITORNO="$inp"
-
-  read -r -p "  $(testo 'Colore timer')    [${COL_TIMER}]: " inp
-  [[ "$inp" =~ ^[0-7]$ ]] && COL_TIMER="$inp"
+  read -r -p "  $(text 'Default minutes')  [${DEFAULT_MINUTES:-none}]: " inp
+  [[ -n "$inp" ]] && DEFAULT_MINUTES="$inp"
 
   echo
-  read -r -p "  $(testo 'Lock screen automatico?') (1=sì 0=no) [${LOCK_SCREEN}]: " inp
+  title "  Colors (0=black 1=red 2=green 3=yellow 4=blue 5=purple 6=cyan 7=white)"; echo
+  read -r -p "  $(text 'Border color')    [${COLOR_BORDER}]: " inp
+  [[ "$inp" =~ ^[0-7]$ ]] && COLOR_BORDER="$inp"
+
+  read -r -p "  $(text 'Title color')   [${COLOR_TITLE}]: " inp
+  [[ "$inp" =~ ^[0-7]$ ]] && COLOR_TITLE="$inp"
+
+  read -r -p "  $(text 'Text color')    [${COLOR_TEXT}]: " inp
+  [[ "$inp" =~ ^[0-7]$ ]] && COLOR_TEXT="$inp"
+
+  read -r -p "  $(text 'Return color')  [${COLOR_RETURN}]: " inp
+  [[ "$inp" =~ ^[0-7]$ ]] && COLOR_RETURN="$inp"
+
+  read -r -p "  $(text 'Timer color')    [${COLOR_TIMER}]: " inp
+  [[ "$inp" =~ ^[0-7]$ ]] && COLOR_TIMER="$inp"
+
+  echo
+  read -r -p "  $(text 'Auto lock screen?') (1=yes 0=no) [${LOCK_SCREEN}]: " inp
   [[ "$inp" =~ ^[01]$ ]] && LOCK_SCREEN="$inp"
 
-  read -r -p "  $(testo 'Imposta stato Slack?') (1=sì 0=no) [${MOSTRA_SLACK}]: " inp
-  [[ "$inp" =~ ^[01]$ ]] && MOSTRA_SLACK="$inp"
+  read -r -p "  $(text 'Set Slack status?') (1=yes 0=no) [${SHOW_SLACK}]: " inp
+  [[ "$inp" =~ ^[01]$ ]] && SHOW_SLACK="$inp"
 
   echo
-  read -r -p "  $(testo 'Auto-AFK dopo X min idle') (0=disabilitato) [${AUTO_AFK_MINUTI}]: " inp
-  [[ "$inp" =~ ^[0-9]+$ ]] && AUTO_AFK_MINUTI="$inp"
+  read -r -p "  $(text 'Auto-AFK after X min idle') (0=disabled) [${AUTO_AFK_MINUTES}]: " inp
+  [[ "$inp" =~ ^[0-9]+$ ]] && AUTO_AFK_MINUTES="$inp"
 
   cat > "$CONFIG_FILE" << EOF
-# afk.sh — configurazione utente
-DEFAULT_MOTIVO="${DEFAULT_MOTIVO}"
-DEFAULT_MINUTI="${DEFAULT_MINUTI}"
-COL_BORDO="${COL_BORDO}"
-COL_TITOLO="${COL_TITOLO}"
-COL_TESTO="${COL_TESTO}"
-COL_RITORNO="${COL_RITORNO}"
-COL_TIMER="${COL_TIMER}"
+# afk.sh — user configuration
+DEFAULT_REASON="${DEFAULT_REASON}"
+DEFAULT_MINUTES="${DEFAULT_MINUTES}"
+COLOR_BORDER="${COLOR_BORDER}"
+COLOR_TITLE="${COLOR_TITLE}"
+COLOR_TEXT="${COLOR_TEXT}"
+COLOR_RETURN="${COLOR_RETURN}"
+COLOR_TIMER="${COLOR_TIMER}"
 LOCK_SCREEN="${LOCK_SCREEN}"
-MOSTRA_SLACK="${MOSTRA_SLACK}"
-MOSTRA_DISCORD="${MOSTRA_DISCORD}"
-AUTO_AFK_MINUTI="${AUTO_AFK_MINUTI}"
+SHOW_SLACK="${SHOW_SLACK}"
+SHOW_DISCORD="${SHOW_DISCORD}"
+AUTO_AFK_MINUTES="${AUTO_AFK_MINUTES}"
 QUICK_REASONS="${QUICK_REASONS}"
 EOF
 
   echo
-  verde "  ✓ Configurazione salvata in ${CONFIG_FILE}"; echo
+  green "  ✓ Configuration saved in ${CONFIG_FILE}"; echo
   echo
 }
 
-# ── Mostra quick reasons ──────────────────────────────
-mostra_aliases() {
+# ── Show quick aliases ─────────────────────────────────
+show_aliases() {
   echo
-  testo "  Alias rapidi disponibili:"; echo
+  text "  Available quick aliases:"; echo
   local IFS=$';'
   local entries=($QUICK_REASONS)
   for entry in "${entries[@]}"; do
-    IFS=':' read -r alias motivo minuti <<< "$entry"
+    IFS=':' read -r alias reason minutes <<< "$entry"
     local min_str=""
-    [[ -n "$minuti" ]] && min_str=" (${minuti} min)"
-    printf "    "; B "$alias"; testo " → $motivo$min_str"; echo
+    [[ -n "$minutes" ]] && min_str=" (${minutes} min)"
+    printf "    "; B "$alias"; text " → $reason$min_str"; echo
   done
   echo
-  testo "  Puoi aggiungerli in ${CONFIG_FILE} (QUICK_REASONS)"; echo
+  text "  You can add them in ${CONFIG_FILE} (QUICK_REASONS)"; echo
   echo
 }
 
 # ── Help ───────────────────────────────────────────────
-mostra_help() {
+show_help() {
   echo
-  testo "  afk.sh v${VERSION} — Away From Keyboard manager"; echo
+  text "  afk.sh v${VERSION} — Away From Keyboard manager"; echo
   echo
-  testo "  Uso:"; echo
-  printf "  %-35s %s\n" "afk [motivo] [minuti]" "avvia sessione AFK"
-  printf "  %-35s %s\n" "afk 15" "15 min con motivo default"
-  printf "  %-35s %s\n" "afk <alias>" "es. afk pranzo, afk caffe"
-  printf "  %-35s %s\n" "afk --msg \"nota\"" "aggiunge nota alla sessione"
+  text "  Usage:"; echo
+  printf "  %-35s %s\n" "afk [reason] [minutes]" "start AFK session"
+  printf "  %-35s %s\n" "afk 15" "15 min with default reason"
+  printf "  %-35s %s\n" "afk <alias>" "e.g. afk lunch, afk coffee"
+  printf "  %-35s %s\n" "afk --msg \"note\"" "add note to session"
   echo
-  testo "  Comandi:"; echo
-  printf "  %-35s %s\n" "afk --status" "stato AFK corrente"
-  printf "  %-35s %s\n" "afk --back" "segnala ritorno da altro terminale"
-  printf "  %-35s %s\n" "afk --cancel" "annulla AFK senza loggare"
-  printf "  %-35s %s\n" "afk --stats" "statistiche e storico"
-  printf "  %-35s %s\n" "afk --export [file.csv]" "esporta log in CSV"
-  printf "  %-35s %s\n" "afk --edit" "modifica motivo ultima sessione"
-  printf "  %-35s %s\n" "afk --clean [giorni]" "pulisci log vecchi (default: 90)"
-  printf "  %-35s %s\n" "afk --aliases" "mostra alias rapidi"
-  printf "  %-35s %s\n" "afk --config" "configurazione interattiva"
-  printf "  %-35s %s\n" "afk --update" "aggiorna all'ultima versione"
-  printf "  %-35s %s\n" "afk --version" "mostra versione"
+  text "  Commands:"; echo
+  printf "  %-35s %s\n" "afk --status" "current AFK status"
+  printf "  %-35s %s\n" "afk --back" "report return from another terminal"
+  printf "  %-35s %s\n" "afk --cancel" "cancel AFK without logging"
+  printf "  %-35s %s\n" "afk --stats" "statistics and history"
+  printf "  %-35s %s\n" "afk --export [file.csv]" "export log to CSV"
+  printf "  %-35s %s\n" "afk --edit" "edit last session reason"
+  printf "  %-35s %s\n" "afk --clean [days]" "clean old logs (default: 90)"
+  printf "  %-35s %s\n" "afk --aliases" "show quick aliases"
+  printf "  %-35s %s\n" "afk --config" "interactive configuration"
+  printf "  %-35s %s\n" "afk --update" "update to latest version"
+  printf "  %-35s %s\n" "afk --version" "show version"
   echo
 }
 
 # ═══════════════════════════════════════════════════════
-#  Parse argomenti
+#  Parse arguments
 # ═══════════════════════════════════════════════════════
 MSG_CUSTOM=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --status|-S)   mostra_status; exit 0 ;;
-    --back|-b)     segnala_ritorno; exit 0 ;;
-    --cancel|-x)   annulla_afk; exit 0 ;;
-    --stats|-s)    mostra_stats; exit 0 ;;
-    --export)      shift; esporta_csv "${1:-}"; exit 0 ;;
-    --edit|-e)     modifica_ultima; exit 0 ;;
-    --clean)       shift; pulisci_log "${1:-90}"; exit 0 ;;
-    --config|-c)   wizard_config; exit 0 ;;
-    --aliases|-a)  mostra_aliases; exit 0 ;;
+    --status|-S)   show_status; exit 0 ;;
+    --back|-b)     signal_return; exit 0 ;;
+    --cancel|-x)   cancel_afk; exit 0 ;;
+    --stats|-s)    show_stats; exit 0 ;;
+    --export)      shift; export_csv "${1:-}"; exit 0 ;;
+    --edit|-e)     edit_last; exit 0 ;;
+    --clean)       shift; clean_logs "${1:-90}"; exit 0 ;;
+    --config|-c)   config_wizard; exit 0 ;;
+    --aliases|-a)  show_aliases; exit 0 ;;
     --update|-u)   self_update; exit 0 ;;
     --version|-v)  echo "  afk.sh v${VERSION}"; exit 0 ;;
-    --help|-h)     mostra_help; exit 0 ;;
+    --help|-h)     show_help; exit 0 ;;
     --msg|-m)      shift; MSG_CUSTOM="${1:-}"; shift; continue ;;
     --daemon|-d)   afk_daemon; exit 0 ;;
     *)             break ;;
@@ -727,98 +719,97 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ═══════════════════════════════════════════════════════
-#  Risolvi motivo e minuti
+#  Resolve reason and minutes
 # ═══════════════════════════════════════════════════════
-MOTIVO="${1:-}"
-MINUTI="${2:-}"
+REASON="${1:-}"
+MINUTES="${2:-}"
 
-# Se il primo arg è un numero puro → è i minuti, usa motivo default
-if [[ -n "$MOTIVO" && "$MOTIVO" =~ ^[0-9]+$ ]]; then
-  MINUTI="$MOTIVO"
-  MOTIVO="$DEFAULT_MOTIVO"
+# If first arg is a pure number → those are the minutes, use default reason
+if [[ -n "$REASON" && "$REASON" =~ ^[0-9]+$ ]]; then
+  MINUTES="$REASON"
+  REASON="$DEFAULT_REASON"
 fi
 
-# Se è un alias rapido, espandilo
-QUICK_MOTIVO="" QUICK_MINUTI=""
-if [[ -n "$MOTIVO" ]] && espandi_quick_reason "$MOTIVO"; then
-  MOTIVO="$QUICK_MOTIVO"
-  [[ -z "$MINUTI" && -n "$QUICK_MINUTI" ]] && MINUTI="$QUICK_MINUTI"
+# If it's a quick alias, expand it
+QUICK_REASON="" QUICK_MINUTES=""
+if [[ -n "$REASON" ]] && expand_quick_reason "$REASON"; then
+  REASON="$QUICK_REASON"
+  [[ -z "$MINUTES" && -n "$QUICK_MINUTES" ]] && MINUTES="$QUICK_MINUTES"
 else
-  MOTIVO="${MOTIVO:-$DEFAULT_MOTIVO}"
+  REASON="${REASON:-$DEFAULT_REASON}"
 fi
-MINUTI="${MINUTI:-$DEFAULT_MINUTI}"
+MINUTES="${MINUTES:-$DEFAULT_MINUTES}"
 
-# ── Se --msg senza testo, chiedi interattivamente ─────
+# ── If --msg without text, ask interactively ───────────
 if [[ -n "$MSG_CUSTOM" && -z "$MSG_CUSTOM" ]]; then
   echo
-  testo "  Messaggio da lasciare (Invio per saltare): "; echo
+  text "  Message to leave (Enter to skip): "; echo
   printf "  > "
   read -r MSG_CUSTOM
 fi
 
 # ═══════════════════════════════════════════════════════
-#  Controlla se già AFK
+#  Check if already AFK
 # ═══════════════════════════════════════════════════════
-if lock_attivo; then
+if is_lock_active; then
   echo
-  rosso "  ⚠ Sei già AFK!"; echo
+  red "  ⚠ You are already AFK!"; echo
   echo
   now_elapsed=$(( $(date +%s) - LOCK_EPOCH ))
   eh=$(( now_elapsed / 3600 )); em=$(( (now_elapsed % 3600) / 60 ))
   if [[ $eh -gt 0 ]]; then el_str="${eh}h ${em}min"; else el_str="${em} min"; fi
-  testo "  Motivo: $LOCK_MOTIVO | Dalle: $LOCK_START | Tempo: $el_str"; echo
+  text "  Reason: $LOCK_REASON | From: $LOCK_START | Time: $el_str"; echo
   echo
-  printf "  "; testo "Sostituire la sessione? [s/N] "; printf " "
-  read -r conferma
-  if [[ ! "$conferma" =~ ^[sSyY]$ ]]; then
+  printf "  "; text "Replace the session? [y/N] "; printf " "
+  read -r confirm
+  if [[ ! "$confirm" =~ ^[yY]$ ]]; then
     exit 0
   fi
-  # Uccidi la vecchia sessione
   kill "$LOCK_PID" 2>/dev/null
   [[ -n "$LOCK_TPID" ]] && kill "$LOCK_TPID" 2>/dev/null
-  rimuovi_lock
+  remove_lock
   rm -f "$SEMAPHORE" "$CANCEL_FILE"
   sleep 0.5
 fi
 
 # ═══════════════════════════════════════════════════════
-#  Main — avvia sessione AFK
+#  Main — Start AFK session
 # ═══════════════════════════════════════════════════════
-ora_inizio=$(date +"%H:%M")
+start_time=$(date +"%H:%M")
 
-# Cleanup su uscita forzata
+# Cleanup on forced exit
 cleanup_trap() {
   [[ -f "$CANCEL_FILE" ]] && return 0
-  rimuovi_lock
+  remove_lock
   rm -f "$SEMAPHORE"
   [[ -n "${TIMER_PID:-}" ]] && kill "$TIMER_PID" 2>/dev/null
 }
 trap cleanup_trap INT TERM
 
-# Scrivi lock
-scrivi_lock "$MOTIVO" "$MINUTI" ""
+# Write lock
+write_lock "$REASON" "$MINUTES" ""
 
-# Mostra banner
-banner_afk "$ora_inizio" "$MOTIVO" "$MINUTI" "$MSG_CUSTOM"
+# Show banner
+show_afk_banner "$start_time" "$REASON" "$MINUTES" "$MSG_CUSTOM"
 
-# Notifica desktop
-notifica_afk "$MOTIVO" "$ora_inizio" "$MINUTI"
+# Desktop notification
+notify_afk "$REASON" "$start_time" "$MINUTES"
 
 # Slack
-imposta_stato_slack "$MOTIVO"
+set_slack_status "$REASON"
 
 # Lock screen
 lock_screen_if
 
-# Timer countdown in background
+# Countdown timer in background
 TIMER_PID=""
-if [[ -n "$MINUTI" && "$MINUTI" =~ ^[0-9]+$ ]]; then
-  timer_countdown "$MINUTI" &
+if [[ -n "$MINUTES" && "$MINUTES" =~ ^[0-9]+$ ]]; then
+  timer_countdown "$MINUTES" &
   TIMER_PID=$!
-  scrivi_lock "$MOTIVO" "$MINUTI" "$TIMER_PID"
+  write_lock "$REASON" "$MINUTES" "$TIMER_PID"
 fi
 
-# ── Aspetta ritorno (Invio / --back / --cancel) ───────
+# ── Wait for return (Enter / --back / --cancel) ───────
 rm -f "$SEMAPHORE" "$CANCEL_FILE"
 while true; do
   if read -r -s -t 1 2>/dev/null; then
@@ -830,49 +821,49 @@ while true; do
   fi
 done
 
-# ── Controlla se è stato annullato ────────────────────
+# ── Check if it was canceled ───────────────────────────
 if [[ -f "$CANCEL_FILE" ]]; then
   rm -f "$CANCEL_FILE"
   [[ -n "${TIMER_PID:-}" ]] && kill "$TIMER_PID" 2>/dev/null
-  rimuovi_lock
-  pulisci_schermo
+  remove_lock
+  clear_screen
   echo
-  giallo "  ✗ Sessione AFK annullata (non loggata)."; echo
+  yellow "  ✗ AFK session canceled (not logged)."; echo
   echo
   exit 0
 fi
 
-# Ferma timer
+# Stop timer
 if [[ -n "${TIMER_PID:-}" ]]; then
   kill "$TIMER_PID" 2>/dev/null
   wait "$TIMER_PID" 2>/dev/null
 fi
 
-ora_fine=$(date +"%H:%M")
-durata=$(calcola_durata "$ora_inizio" "$ora_fine")
+end_time=$(date +"%H:%M")
+duration=$(calculate_duration "$start_time" "$end_time")
 
-# Notifica ritorno
-notifica_ritorno "$ora_fine" "$ora_inizio" "$durata"
+# Return notification
+notify_return "$end_time" "$start_time" "$duration"
 
-# Salva log
-log_afk "$MOTIVO" "$ora_inizio" "$ora_fine" "$durata"
+# Save log
+log_afk "$REASON" "$start_time" "$end_time" "$duration"
 
-# Rimuovi lock
-rimuovi_lock
+# Remove lock
+remove_lock
 
-# ── Schermata di ritorno ──────────────────────────────
-pulisci_schermo
+# ── Return screen ──────────────────────────────────────
+clear_screen
 echo
-linea
-bordo "║"; printf "  "; ritorno "✓  Bentornato!"; printf "%-36s" ""; bordo "║"; echo
-linea_mid
-riga_vuota
-riga_kv "Tornato:" "$ora_fine"
-riga_kv "Durata:" "$durata"
-riga_kv "Motivo:" "$MOTIVO"
+draw_line
+border "║"; printf "  "; return_c "✓  Welcome back!"; printf "%-36s" ""; border "║"; echo
+draw_mid_line
+draw_empty_row
+draw_kv_row "Returned:" "$end_time"
+draw_kv_row "Duration:" "$duration"
+draw_kv_row "Reason:" "$REASON"
 if [[ -n "$MSG_CUSTOM" ]]; then
-  riga_kv "Nota:" "$MSG_CUSTOM"
+  draw_kv_row "Note:" "$MSG_CUSTOM"
 fi
-riga_vuota
-linea_fine
+draw_empty_row
+draw_bot_line
 echo
