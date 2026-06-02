@@ -9,7 +9,7 @@ A bash script that tracks your PC absences with timers, desktop notifications, s
 
 ---
 
-## ✨ Features
+## Features
 
 - 🎯 **Quick start** — `afk lunch` and you're done
 - ⏱️ **Countdown timer** — with notification on expiry
@@ -28,7 +28,7 @@ A bash script that tracks your PC absences with timers, desktop notifications, s
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 git clone https://github.com/tappo180gg/AFK-Desktop-CLI.git
@@ -45,7 +45,7 @@ cp afk.sh ~/.local/bin/afk
 chmod +x ~/.local/bin/afk
 ```
 
-## 🚀 Usage
+## Usage
 ```bash
 afk                       # AFK with default reason
 afk lunch                 # Quick alias → "Lunch, 60 min"
@@ -70,7 +70,7 @@ afk --msg "brb"           # With a custom note
 | `afk --update` | Update to the latest version |
 | `afk --version` | Show version |
 
-## ⚡ Quick Aliases
+## Quick Aliases
 Preconfigured and customizable:
 
 | Alias | Reason | Duration |
@@ -85,7 +85,7 @@ Preconfigured and customizable:
 Add your own in ~/.config/afk/config:
 ```QUICK_REASONS="lunch:Lunch:60;coffee:Coffee:5;stream:Stream:120"```
 
-## 💤 Auto-AFK (Idle Detection)
+## Auto-AFK (Idle Detection)
 
 Install **xprintidle** and set the threshold:
 ```bash
@@ -101,7 +101,7 @@ crontab -e
 */5 * * * * /home/$USER/.local/bin/afk --daemon
 ```
 
-## 🎨 Configuration
+## Configuration
 Everything is stored in ~/.config/afk/:
 
 | File | Content |
@@ -111,7 +111,7 @@ Everything is stored in ~/.config/afk/:
 
 Run afk --config for the guided setup wizard.
 
-## 📎 Optional Dependencies
+## Optional Dependencies
 
 | Package | Function |
 |-----------|----------|
