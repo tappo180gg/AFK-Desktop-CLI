@@ -6,7 +6,7 @@ A bash script that tracks your PC absences with timers, desktop notifications, s
 
 ![Terminal](https://img.shields.io/badge/terminal-bash-4EAA25?logo=gnu-bash&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version%3A-1.4.1-green?style=plastic)
+![Version](https://img.shields.io/badge/version%3A-1.4.1-green?style=flat)
 
 ---
 
