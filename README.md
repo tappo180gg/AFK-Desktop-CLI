@@ -1,6 +1,6 @@
 # afk.sh v1.4.1 💤 (Beta)
 
-**Away From Keyboard manager for Ubuntu/Linux.**
+**Away From Keyboard manager for Linux.**
 
 A bash script that tracks your PC absences with timers, desktop notifications, statistics, auto-AFK, and more — all from the terminal.
 
