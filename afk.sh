@@ -720,7 +720,7 @@ show_aliases() {
 # ── Help ───────────────────────────────────────────────
 show_help() {
   echo
-  text "  afk.sh v${VERSION} — Away From Keyboard manager — By @tappo_180gg" + "$(1)"; echo
+  text "  afk.sh v${VERSION} — Away From Keyboard manager — By @tappo_180gg"; echo
   echo
   text "  Usage:"; echo
   printf "  %-35s %s\n" "afk [reason] [minutes]" "start AFK session"
