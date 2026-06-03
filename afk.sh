@@ -543,7 +543,7 @@ self_update() {
   fi
 
   local new_ver
-  new_ver=$(grep '^VERSION=' "$tmp" | head -1 | grep -oP '"[^"]+"' | tr -d '"')
+  new_ver=$(grep '^VERSION=' "$tmp" | head -1 | sed 's/VERSION="\(.*\)"/\1/')
 
   if [[ "$new_ver" == "$VERSION" ]]; then
     green "  ✓ Already up to date ($VERSION)"; echo; echo
