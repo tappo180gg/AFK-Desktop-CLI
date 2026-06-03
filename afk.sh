@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ═══════════════════════════════════════════════════════
-#  afk.sh — Away From Keyboard manager for Ubuntu
+#  afk.sh — Away From Keyboard manager for Linux
 #  Usage: afk [reason] [minutes]     afk lunch
 #         afk --status               afk --back
 #         afk --cancel               afk --stats
@@ -720,7 +720,7 @@ show_aliases() {
 # ── Help ───────────────────────────────────────────────
 show_help() {
   echo
-  text "  afk.sh v${VERSION} — Away From Keyboard manager — By @tappo_180gg"; echo
+  text "  afk.sh v${VERSION} — Away From Keyboard manager — By @tappo_180gg" + "$(1)"; echo
   echo
   text "  Usage:"; echo
   printf "  %-35s %s\n" "afk [reason] [minutes]" "start AFK session"
