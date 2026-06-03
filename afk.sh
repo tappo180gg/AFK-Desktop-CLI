@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
 
-# ═══════════════════════════════════════════════════════
-#  afk.sh — Away From Keyboard manager for Linux
-#  Usage: afk [reason] [minutes]     afk lunch
-#         afk --status               afk --back
-#         afk --cancel               afk --stats
-#         afk --edit                 afk --clean [days]
-#         afk --export               afk --update
-#         afk --aliases              afk --config
-# ═══════════════════════════════════════════════════════
-
 VERSION="1.4.1"
 REPO_RAW="https://github.com/tappo180gg/AFK-Desktop-CLI/blob/main/afk.sh"
 
