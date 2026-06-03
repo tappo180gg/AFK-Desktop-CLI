@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 VERSION="1.4.1"
-REPO_RAW="https://github.com/tappo180gg/AFK-Desktop-CLI/blob/main/afk.sh"
+REPO_RAW="https://raw.githubusercontent.com/tappo180gg/AFK-Desktop-CLI/refs/heads/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
 CONFIG_FILE="${CONFIG_DIR}/config"
