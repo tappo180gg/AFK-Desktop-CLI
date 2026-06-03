@@ -1,4 +1,4 @@
-# afk.sh v1.4.0 💤 (Beta)
+# afk.sh v1.4.1 💤 (Beta)
 
 **Away From Keyboard manager for Ubuntu/Linux.**
 

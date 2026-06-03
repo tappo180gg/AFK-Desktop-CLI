@@ -10,8 +10,8 @@
 #         afk --aliases              afk --config
 # ═══════════════════════════════════════════════════════
 
-VERSION="1.4.0"
-REPO_RAW="https://raw.githubusercontent.com/YOUR_USERNAME/afk/main/afk.sh"
+VERSION="1.4.1"
+REPO_RAW="https://github.com/tappo180gg/AFK-Desktop-CLI/blob/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
 CONFIG_FILE="${CONFIG_DIR}/config"
@@ -720,7 +720,7 @@ show_aliases() {
 # ── Help ───────────────────────────────────────────────
 show_help() {
   echo
-  text "  afk.sh v${VERSION} — Away From Keyboard manager"; echo
+  text "  afk.sh v${VERSION} — Away From Keyboard manager — By @tappo_180gg"; echo
   echo
   text "  Usage:"; echo
   printf "  %-35s %s\n" "afk [reason] [minutes]" "start AFK session"
