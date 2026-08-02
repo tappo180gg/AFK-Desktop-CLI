@@ -6,7 +6,36 @@ echo "📦  Installing afk.sh..."
 DEST="$HOME/.local/bin"
 mkdir -p "$DEST"
 
-cp afk.sh "$DEST/afk"
+REPO_RAW="https://raw.githubusercontent.com/tappo180gg/AFK-Desktop-CLI/refs/heads/main/afk.sh"
+
+# If afk.sh isn't next to this script (e.g. running via
+# `curl -fsSL .../install.sh | bash` without cloning the repo first),
+# download it straight from GitHub instead of failing.
+if [[ -f "afk.sh" ]]; then
+  cp afk.sh "$DEST/afk"
+else
+  echo "  afk.sh not found locally — downloading from GitHub..."
+  tmp_download=$(mktemp)
+  # Cache-busting query param avoids stale responses from GitHub's raw
+  # content CDN, which can serve an old copy for a few minutes after a push.
+  dl_url="${REPO_RAW}?_=$(date +%s)"
+  if command -v curl &>/dev/null; then
+    curl -fsSL "$dl_url" -o "$tmp_download"
+  elif command -v wget &>/dev/null; then
+    wget -qO "$tmp_download" "$dl_url"
+  else
+    echo "  ✗ curl or wget required to download afk.sh"
+    exit 1
+  fi
+  if [[ ! -s "$tmp_download" ]] || ! bash -n "$tmp_download" 2>/dev/null; then
+    echo "  ✗ Download failed or file is invalid"
+    rm -f "$tmp_download"
+    exit 1
+  fi
+  cp "$tmp_download" "$DEST/afk"
+  rm -f "$tmp_download"
+fi
+
 chmod +x "$DEST/afk"
 
 # Add to PATH if not already there
