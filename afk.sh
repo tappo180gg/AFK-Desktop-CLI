@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="1.5.0"
+VERSION="1.5.1"
 REPO_RAW="https://raw.githubusercontent.com/tappo180gg/AFK-Desktop-CLI/refs/heads/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
@@ -148,8 +148,24 @@ _discord_ipc() {
   [[ -z "$DISCORD_CLIENT_ID" ]] && return
   command -v python3 &>/dev/null || return
 
-  local sock="${XDG_RUNTIME_DIR:-/tmp}/discord-ipc-0"
-  [[ -S "$sock" ]] || return
+  # Discord's IPC socket lives in different places depending on how it
+  # was installed — native packages use $XDG_RUNTIME_DIR directly, while
+  # Flatpak/Snap sandbox it under their own app-specific run directory.
+  # Try each known location and use the first one that actually exists.
+  local runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+  local candidates=(
+    "${runtime_dir}/discord-ipc-0"
+    "${runtime_dir}/app/com.discordapp.Discord/discord-ipc-0"
+    "${runtime_dir}/snap.discord/discord-ipc-0"
+  )
+  local sock=""
+  for c in "${candidates[@]}"; do
+    if [[ -S "$c" ]]; then
+      sock="$c"
+      break
+    fi
+  done
+  [[ -z "$sock" ]] && return
 
   python3 - "$sock" "$DISCORD_CLIENT_ID" "$mode" "$reason" "$minutes" <<'PYEOF' 2>/dev/null
 import socket, struct, json, sys, os, time
