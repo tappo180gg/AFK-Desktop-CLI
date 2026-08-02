@@ -1,4 +1,4 @@
-# afk.sh v1.5.1 💤 
+# afk.sh v1.5.2 💤 
 
 **Away From Keyboard manager for Linux.**
 
