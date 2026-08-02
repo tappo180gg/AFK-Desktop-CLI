@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="1.5.2"
+VERSION="1.5.3"
 REPO_RAW="https://raw.githubusercontent.com/tappo180gg/AFK-Desktop-CLI/refs/heads/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
@@ -718,10 +718,14 @@ self_update() {
   local tmp
   tmp=$(mktemp)
 
+  # Cache-busting query param avoids stale responses from GitHub's raw
+  # content CDN, which can serve an old copy for a few minutes after a push.
+  local dl_url="${REPO_RAW}?_=$(date +%s)"
+
   if command -v curl &>/dev/null; then
-    curl -fsSL "$REPO_RAW" -o "$tmp" 2>/dev/null
+    curl -fsSL "$dl_url" -o "$tmp" 2>/dev/null
   elif command -v wget &>/dev/null; then
-    wget -qO "$tmp" "$REPO_RAW" 2>/dev/null
+    wget -qO "$tmp" "$dl_url" 2>/dev/null
   else
     red "  ✗ curl or wget required"; echo; echo
     rm -f "$tmp"
