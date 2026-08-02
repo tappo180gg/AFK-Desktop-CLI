@@ -142,35 +142,45 @@ set_slack_status() {
 # ctrl+shift+y, so keystroke automation would be too fragile/unreliable).
 # Requires: python3, Discord desktop client running, and a Discord
 # "Application" client_id — free to create at discord.com/developers.
-_discord_ipc() {
-  local mode="$1" reason="$2" minutes="$3"
-  [[ "$SHOW_DISCORD" != "1" ]] && return
-  [[ -z "$DISCORD_CLIENT_ID" ]] && return
-  command -v python3 &>/dev/null || return
+#
+# IMPORTANT: Discord clears Rich Presence as soon as the IPC connection
+# that set it disconnects — it's designed for a game/app that stays
+# running, not a one-shot "set and exit" call. So this launches a
+# background python process that keeps the socket open for the whole
+# AFK session, and only sends a "clear" + disconnects when the session
+# ends (via clear_discord_status, which kills this background process).
+DISCORD_PID=""
 
+_find_discord_sock() {
   # Discord's IPC socket lives in different places depending on how it
   # was installed — native packages use $XDG_RUNTIME_DIR directly, while
   # Flatpak/Snap sandbox it under their own app-specific run directory.
-  # Try each known location and use the first one that actually exists.
   local runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
   local candidates=(
     "${runtime_dir}/discord-ipc-0"
     "${runtime_dir}/app/com.discordapp.Discord/discord-ipc-0"
     "${runtime_dir}/snap.discord/discord-ipc-0"
   )
-  local sock=""
+  local c
   for c in "${candidates[@]}"; do
-    if [[ -S "$c" ]]; then
-      sock="$c"
-      break
-    fi
+    [[ -S "$c" ]] && { echo "$c"; return 0; }
   done
-  [[ -z "$sock" ]] && return
+  return 1
+}
 
-  python3 - "$sock" "$DISCORD_CLIENT_ID" "$mode" "$reason" "$minutes" <<'PYEOF' 2>/dev/null
-import socket, struct, json, sys, os, time
+set_discord_status() {
+  local reason="$1" minutes="$2"
+  [[ "$SHOW_DISCORD" != "1" ]] && return
+  [[ -z "$DISCORD_CLIENT_ID" ]] && return
+  command -v python3 &>/dev/null || return
 
-sock_path, client_id, mode, reason, minutes = sys.argv[1:6]
+  local sock
+  sock=$(_find_discord_sock) || return
+
+  python3 -u - "$sock" "$DISCORD_CLIENT_ID" "$reason" "$minutes" <<'PYEOF' &>/dev/null &
+import socket, struct, json, sys, os, time, signal
+
+sock_path, client_id, reason, minutes = sys.argv[1:5]
 
 def send(sock, op, payload):
     data = json.dumps(payload).encode()
@@ -183,22 +193,19 @@ def recv(sock):
     _, length = struct.unpack('<II', header)
     return sock.recv(length)
 
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(3)
 try:
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(1.5)
     s.connect(sock_path)
     send(s, 0, {"v": 1, "client_id": client_id})
     recv(s)
 
-    if mode == "clear":
-        activity = None
-    else:
-        activity = {"state": reason, "details": "Away From Keyboard"}
-        if minutes:
-            try:
-                activity["timestamps"] = {"end": int(time.time()) + int(minutes) * 60}
-            except ValueError:
-                pass
+    activity = {"type": 0, "state": reason, "details": "Away From Keyboard", "instance": False}
+    if minutes:
+        try:
+            activity["timestamps"] = {"end": int(time.time()) + int(minutes) * 60}
+        except ValueError:
+            pass
 
     send(s, 1, {
         "cmd": "SET_ACTIVITY",
@@ -206,14 +213,41 @@ try:
         "nonce": str(time.time())
     })
     recv(s)
-    s.close()
 except Exception:
-    pass
+    sys.exit(1)
+
+def _clear_and_exit(signum, frame):
+    try:
+        send(s, 1, {
+            "cmd": "SET_ACTIVITY",
+            "args": {"pid": os.getpid(), "activity": None},
+            "nonce": str(time.time())
+        })
+        recv(s)
+    except Exception:
+        pass
+    try:
+        s.close()
+    except Exception:
+        pass
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, _clear_and_exit)
+signal.signal(signal.SIGINT, _clear_and_exit)
+
+# Keep the process (and IPC connection) alive for the whole AFK session.
+while True:
+    time.sleep(3600)
 PYEOF
+
+  DISCORD_PID=$!
 }
 
-set_discord_status()   { _discord_ipc "set" "$1" "$2"; }
-clear_discord_status()  { _discord_ipc "clear" "" ""; }
+clear_discord_status() {
+  local pid="${1:-$DISCORD_PID}"
+  [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+  DISCORD_PID=""
+}
 
 # ── Idle detection (auto-AFK) ──────────────────────────
 get_idle_ms() {
@@ -249,12 +283,12 @@ get_idle_min() {
 
 # ── Lock file (current AFK status) ────────────────────
 write_lock() {
-  echo "$$|$(date +%s)|$(date +%H:%M)|${1}|${2:-}|${3:-}" > "$LOCK_FILE"
+  echo "$$|$(date +%s)|$(date +%H:%M)|${1}|${2:-}|${3:-}|${4:-}" > "$LOCK_FILE"
 }
 
 read_lock() {
   [[ -f "$LOCK_FILE" ]] || return 1
-  IFS='|' read -r LOCK_PID LOCK_EPOCH LOCK_START LOCK_REASON LOCK_MINUTES LOCK_TPID < "$LOCK_FILE" 2>/dev/null || return 1
+  IFS='|' read -r LOCK_PID LOCK_EPOCH LOCK_START LOCK_REASON LOCK_MINUTES LOCK_TPID LOCK_DPID < "$LOCK_FILE" 2>/dev/null || return 1
 }
 
 is_lock_active() {
@@ -1018,6 +1052,7 @@ if is_lock_active; then
   fi
   kill "$LOCK_PID" 2>/dev/null
   [[ -n "$LOCK_TPID" ]] && kill "$LOCK_TPID" 2>/dev/null
+  [[ -n "$LOCK_DPID" ]] && kill "$LOCK_DPID" 2>/dev/null
   remove_lock
   rm -f "$SEMAPHORE" "$CANCEL_FILE"
   sleep 0.5
@@ -1034,6 +1069,7 @@ cleanup_trap() {
   remove_lock
   rm -f "$SEMAPHORE"
   [[ -n "${TIMER_PID:-}" ]] && kill "$TIMER_PID" 2>/dev/null
+  clear_discord_status
 }
 trap cleanup_trap INT TERM
 
@@ -1051,6 +1087,7 @@ set_slack_status "$REASON"
 
 # Discord
 set_discord_status "$REASON" "$MINUTES"
+write_lock "$REASON" "$MINUTES" "" "$DISCORD_PID"
 
 # Lock screen
 lock_screen_if
@@ -1060,7 +1097,7 @@ TIMER_PID=""
 if [[ -n "$MINUTES" && "$MINUTES" =~ ^[0-9]+$ ]]; then
   timer_countdown "$MINUTES" &
   TIMER_PID=$!
-  write_lock "$REASON" "$MINUTES" "$TIMER_PID"
+  write_lock "$REASON" "$MINUTES" "$TIMER_PID" "$DISCORD_PID"
 fi
 
 # ── Wait for return (Enter / --back / --cancel) ───────
