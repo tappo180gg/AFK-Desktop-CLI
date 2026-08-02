@@ -508,6 +508,26 @@ clean_logs() {
   fi
 }
 
+# ── Version comparison helper ──────────────────────────
+# Returns: 0 if $1 == $2, 1 if $1 > $2, 2 if $1 < $2
+version_compare() {
+  local v1="$1" v2="$2"
+  [[ "$v1" == "$v2" ]] && return 0
+
+  local IFS=.
+  local -a a=($v1) b=($v2)
+  local i
+  for ((i=0; i<3; i++)); do
+    local n1="${a[i]:-0}" n2="${b[i]:-0}"
+    # strip any non-numeric suffix (e.g. "1.4.2-beta") to keep arithmetic safe
+    n1="${n1//[^0-9]/}"; n2="${n2//[^0-9]/}"
+    n1="${n1:-0}"; n2="${n2:-0}"
+    if ((10#$n1 > 10#$n2)); then return 1; fi
+    if ((10#$n1 < 10#$n2)); then return 2; fi
+  done
+  return 0
+}
+
 # ── Self-update (--update) ────────────────────────────
 self_update() {
   echo
@@ -518,7 +538,9 @@ self_update() {
 
   if [[ ! -w "$script_path" ]]; then
     red "  ✗ No write permissions for $script_path"; echo
-    text "    Try: sudo afk --update"; echo; echo
+    text "    This usually means afk wasn't installed in your user directory."; echo
+    text "    Check ownership with: ls -l \"$script_path\""; echo
+    text "    If it's owned by root, reinstall it under \$HOME/.local/bin instead of using sudo."; echo; echo
     return 1
   fi
 
@@ -542,21 +564,54 @@ self_update() {
     return 1
   fi
 
+  # Syntax check before touching the live script — catches truncated or
+  # corrupted downloads that still happen to pass the shebang check above.
+  if ! bash -n "$tmp" 2>/dev/null; then
+    red "  ✗ Downloaded file failed syntax check — aborting, nothing was changed"; echo; echo
+    rm -f "$tmp"
+    return 1
+  fi
+
   local new_ver
   new_ver=$(grep '^VERSION=' "$tmp" | head -1 | sed 's/VERSION="\(.*\)"/\1/')
 
-  if [[ "$new_ver" == "$VERSION" ]]; then
+  if [[ -z "$new_ver" ]]; then
+    red "  ✗ Could not read version from downloaded file — aborting"; echo; echo
+    rm -f "$tmp"
+    return 1
+  fi
+
+  version_compare "$new_ver" "$VERSION"
+  local cmp=$?
+
+  if [[ "$cmp" -eq 0 ]]; then
     green "  ✓ Already up to date ($VERSION)"; echo; echo
+    rm -f "$tmp"
+    return 0
+  elif [[ "$cmp" -eq 2 ]]; then
+    yellow "  ⚠ Remote version ($new_ver) is older than current ($VERSION) — skipping"; echo
+    text "    (the repo may be in a broken state, or you're running a pre-release build)"; echo; echo
     rm -f "$tmp"
     return 0
   fi
 
-  cp "$tmp" "$script_path"
-  chmod +x "$script_path"
-  rm -f "$tmp"
+  # Back up the current script so a bad update can be rolled back.
+  local backup_path="${script_path}.bak"
+  cp "$script_path" "$backup_path"
 
-  green "  ✓ Updated: $VERSION → $new_ver"; echo
-  text "  Restart afk to use the new version."; echo; echo
+  if cp "$tmp" "$script_path" && chmod +x "$script_path"; then
+    rm -f "$tmp"
+    green "  ✓ Updated: $VERSION → $new_ver"; echo
+    text "  Backup saved to: $backup_path"; echo
+    text "  Restart afk to use the new version."; echo
+    text "  If something's broken: cp \"$backup_path\" \"$script_path\""; echo; echo
+  else
+    red "  ✗ Failed to write update — restoring backup"; echo
+    cp "$backup_path" "$script_path"
+    chmod +x "$script_path"
+    rm -f "$tmp"
+    return 1
+  fi
 }
 
 # ── Auto-AFK daemon (--daemon) ────────────────────────
