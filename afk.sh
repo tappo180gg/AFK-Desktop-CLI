@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="1.4.2"
+VERSION="1.5.0"
 REPO_RAW="https://raw.githubusercontent.com/tappo180gg/AFK-Desktop-CLI/refs/heads/main/afk.sh"
 
 CONFIG_DIR="${HOME}/.config/afk"
@@ -21,7 +21,9 @@ COLOR_RETURN="2"
 COLOR_TIMER="3"
 SHOW_SLACK="1"
 SHOW_DISCORD="0"
+DISCORD_CLIENT_ID=""
 LOCK_SCREEN="0"
+OVERDUE_REMIND_MINUTES="10"  # 0 = disabled; repeat notification every N min past timer expiry
 AUTO_AFK_MINUTES="0"  # 0 = disabled; e.g. 15 = auto-AFK after 15 min of idle
 
 # Quick aliases: alias:Reason:Minutes  (separated by ;)
@@ -134,22 +136,92 @@ set_slack_status() {
   xdotool key --window "$slack_win" Return 2>/dev/null
 }
 
+# ── App status (Discord Rich Presence) ─────────────────
+# Talks directly to Discord's local IPC socket instead of simulating
+# keystrokes (Discord has no built-in "set status" shortcut like Slack's
+# ctrl+shift+y, so keystroke automation would be too fragile/unreliable).
+# Requires: python3, Discord desktop client running, and a Discord
+# "Application" client_id — free to create at discord.com/developers.
+_discord_ipc() {
+  local mode="$1" reason="$2" minutes="$3"
+  [[ "$SHOW_DISCORD" != "1" ]] && return
+  [[ -z "$DISCORD_CLIENT_ID" ]] && return
+  command -v python3 &>/dev/null || return
+
+  local sock="${XDG_RUNTIME_DIR:-/tmp}/discord-ipc-0"
+  [[ -S "$sock" ]] || return
+
+  python3 - "$sock" "$DISCORD_CLIENT_ID" "$mode" "$reason" "$minutes" <<'PYEOF' 2>/dev/null
+import socket, struct, json, sys, os, time
+
+sock_path, client_id, mode, reason, minutes = sys.argv[1:6]
+
+def send(sock, op, payload):
+    data = json.dumps(payload).encode()
+    sock.send(struct.pack('<II', op, len(data)) + data)
+
+def recv(sock):
+    header = sock.recv(8)
+    if len(header) < 8:
+        return None
+    _, length = struct.unpack('<II', header)
+    return sock.recv(length)
+
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(1.5)
+    s.connect(sock_path)
+    send(s, 0, {"v": 1, "client_id": client_id})
+    recv(s)
+
+    if mode == "clear":
+        activity = None
+    else:
+        activity = {"state": reason, "details": "Away From Keyboard"}
+        if minutes:
+            try:
+                activity["timestamps"] = {"end": int(time.time()) + int(minutes) * 60}
+            except ValueError:
+                pass
+
+    send(s, 1, {
+        "cmd": "SET_ACTIVITY",
+        "args": {"pid": os.getpid(), "activity": activity},
+        "nonce": str(time.time())
+    })
+    recv(s)
+    s.close()
+except Exception:
+    pass
+PYEOF
+}
+
+set_discord_status()   { _discord_ipc "set" "$1" "$2"; }
+clear_discord_status()  { _discord_ipc "clear" "" ""; }
+
 # ── Idle detection (auto-AFK) ──────────────────────────
 get_idle_ms() {
   if command -v xprintidle &>/dev/null; then
     xprintidle 2>/dev/null
     return
   fi
-  local idle_file="/tmp/.X11-unix"
-  if [[ -d "$idle_file" ]]; then
-    local xdisplay="${DISPLAY:-:0}"
-    local xss_info
-    xss_info=$(xdotool getactivewindow getwindowfocus 2>/dev/null)
-    if command -v xset &>/dev/null; then
-      xset q 2>/dev/null | grep "timeout" | awk '{print $2}'
+
+  # Fallback for systems without xprintidle (e.g. minimal installs):
+  # query the freedesktop ScreenSaver D-Bus service, supported by both
+  # GNOME and KDE (and most compositors implementing the spec), which
+  # returns the real session idle time in ms — unlike xset's screensaver
+  # *timeout* setting, which is a static config value, not actual idle time.
+  if command -v dbus-send &>/dev/null; then
+    local ms
+    ms=$(dbus-send --print-reply --dest=org.freedesktop.ScreenSaver \
+          / org.freedesktop.ScreenSaver.GetSessionIdleTime 2>/dev/null \
+          | awk '/uint32/{print $2}')
+    if [[ "$ms" =~ ^[0-9]+$ ]]; then
+      echo "$ms"
       return
     fi
   fi
+
   echo "0"
 }
 
@@ -217,8 +289,9 @@ calculate_duration() {
 
 # ── Countdown timer ────────────────────────────────────
 timer_countdown() {
-  local secs=$(( $1 * 60 ))
-  trap 'return 0' TERM 2>/dev/null || true
+  local total_minutes="$1"
+  local secs=$(( total_minutes * 60 ))
+  trap 'exit 0' TERM 2>/dev/null || true
   while [[ $secs -gt 0 ]]; do
     local mm=$(( secs / 60 ))
     local ss=$(( secs % 60 ))
@@ -228,7 +301,19 @@ timer_countdown() {
   done
   if [[ $secs -le 0 ]]; then
     printf "\r  "; red "⏰ Time's up!"; printf "                    \n"
-    notify_timer_expired "$1"
+    notify_timer_expired "$total_minutes"
+
+    # Overdue reminders: keep nudging every N minutes until the session
+    # ends (lock file removed), instead of going silent after one notice.
+    if [[ "$OVERDUE_REMIND_MINUTES" =~ ^[0-9]+$ ]] && [[ "$OVERDUE_REMIND_MINUTES" -gt 0 ]]; then
+      local overdue_min=0
+      while [[ -f "$LOCK_FILE" ]]; do
+        sleep $(( OVERDUE_REMIND_MINUTES * 60 )) || break
+        [[ -f "$LOCK_FILE" ]] || break
+        overdue_min=$(( overdue_min + OVERDUE_REMIND_MINUTES ))
+        notify critical appointment-soon "Still AFK!" "It's been ${overdue_min} min past your ${total_minutes} min timer."
+      done
+    fi
   fi
 }
 
@@ -410,6 +495,41 @@ show_stats() {
 
   draw_empty_row
   draw_bot_line
+  echo
+}
+
+# ── Session history (--history) ────────────────────────
+show_history() {
+  local n="${1:-10}"
+  [[ "$n" =~ ^[0-9]+$ ]] || n=10
+
+  if [[ ! -f "$LOG_FILE" ]] || [[ ! -s "$LOG_FILE" ]]; then
+    echo; text "  No sessions recorded yet."; echo; echo
+    return
+  fi
+
+  local total
+  total=$(wc -l < "$LOG_FILE")
+  [[ $n -gt $total ]] && n=$total
+
+  clear_screen
+  echo
+  draw_line
+  border "║"; printf "  "; title "🕓  Last $n sessions"; printf "%-29s" ""; border "║"; echo
+  draw_mid_line
+
+  local skip=$(( total > n ? total - n : 0 ))
+  while IFS='|' read -r date time_i time_f duration reason; do
+    [[ $skip -gt 0 ]] && (( skip-- )) && continue
+    draw_empty_row
+    draw_kv_row "Date:" "$date $time_i → $time_f"
+    draw_kv_row "Duration:" "$duration"
+    draw_kv_row "Reason:" "$reason"
+  done < "$LOG_FILE"
+
+  draw_empty_row
+  draw_bot_line
+  text "  ($total sessions total — afk --history <N> to see more)"; echo
   echo
 }
 
@@ -720,9 +840,21 @@ config_wizard() {
   read -r -p "  $(text 'Set Slack status?') (1=yes 0=no) [${SHOW_SLACK}]: " inp
   [[ "$inp" =~ ^[01]$ ]] && SHOW_SLACK="$inp"
 
+  read -r -p "  $(text 'Set Discord Rich Presence?') (1=yes 0=no) [${SHOW_DISCORD}]: " inp
+  [[ "$inp" =~ ^[01]$ ]] && SHOW_DISCORD="$inp"
+  if [[ "$SHOW_DISCORD" == "1" ]]; then
+    text "    Needs a Discord Application client_id — free, from:"; echo
+    text "    https://discord.com/developers/applications"; echo
+    read -r -p "  $(text 'Discord client_id') [${DISCORD_CLIENT_ID}]: " inp
+    [[ -n "$inp" ]] && DISCORD_CLIENT_ID="$inp"
+  fi
+
   echo
   read -r -p "  $(text 'Auto-AFK after X min idle') (0=disabled) [${AUTO_AFK_MINUTES}]: " inp
   [[ "$inp" =~ ^[0-9]+$ ]] && AUTO_AFK_MINUTES="$inp"
+
+  read -r -p "  $(text 'Remind every X min if still AFK past timer') (0=disabled) [${OVERDUE_REMIND_MINUTES}]: " inp
+  [[ "$inp" =~ ^[0-9]+$ ]] && OVERDUE_REMIND_MINUTES="$inp"
 
   cat > "$CONFIG_FILE" << EOF
 # afk.sh — user configuration
@@ -736,7 +868,9 @@ COLOR_TIMER="${COLOR_TIMER}"
 LOCK_SCREEN="${LOCK_SCREEN}"
 SHOW_SLACK="${SHOW_SLACK}"
 SHOW_DISCORD="${SHOW_DISCORD}"
+DISCORD_CLIENT_ID="${DISCORD_CLIENT_ID}"
 AUTO_AFK_MINUTES="${AUTO_AFK_MINUTES}"
+OVERDUE_REMIND_MINUTES="${OVERDUE_REMIND_MINUTES}"
 QUICK_REASONS="${QUICK_REASONS}"
 EOF
 
@@ -778,6 +912,7 @@ show_help() {
   printf "  %-35s %s\n" "afk --back" "report return from another terminal"
   printf "  %-35s %s\n" "afk --cancel" "cancel AFK without logging"
   printf "  %-35s %s\n" "afk --stats" "statistics and history"
+  printf "  %-35s %s\n" "afk --history [N]" "show last N sessions (default 10)"
   printf "  %-35s %s\n" "afk --export [file.csv]" "export log to CSV"
   printf "  %-35s %s\n" "afk --edit" "edit last session reason"
   printf "  %-35s %s\n" "afk --clean [days]" "clean old logs (default: 90)"
@@ -793,6 +928,7 @@ show_help() {
 #  Parse arguments
 # ═══════════════════════════════════════════════════════
 MSG_CUSTOM=""
+MSG_PROVIDED=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -800,6 +936,7 @@ while [[ $# -gt 0 ]]; do
     --back|-b)     signal_return; exit 0 ;;
     --cancel|-x)   cancel_afk; exit 0 ;;
     --stats|-s)    show_stats; exit 0 ;;
+    --history)     shift; show_history "${1:-10}"; exit 0 ;;
     --export)      shift; export_csv "${1:-}"; exit 0 ;;
     --edit|-e)     edit_last; exit 0 ;;
     --clean)       shift; clean_logs "${1:-90}"; exit 0 ;;
@@ -808,7 +945,7 @@ while [[ $# -gt 0 ]]; do
     --update|-u)   self_update; exit 0 ;;
     --version|-v)  echo "  afk.sh v${VERSION}"; exit 0 ;;
     --help|-h)     show_help; exit 0 ;;
-    --msg|-m)      shift; MSG_CUSTOM="${1:-}"; shift; continue ;;
+    --msg|-m)      shift; MSG_CUSTOM="${1:-}"; MSG_PROVIDED=1; shift; continue ;;
     --daemon|-d)   afk_daemon; exit 0 ;;
     --install-daemon) install_daemon; exit 0 ;;
     *)             break ;;
@@ -839,7 +976,7 @@ fi
 MINUTES="${MINUTES:-$DEFAULT_MINUTES}"
 
 # ── If --msg without text, ask interactively ───────────
-if [[ -n "$MSG_CUSTOM" && -z "$MSG_CUSTOM" ]]; then
+if [[ -n "$MSG_PROVIDED" && -z "$MSG_CUSTOM" ]]; then
   echo
   text "  Message to leave (Enter to skip): "; echo
   printf "  > "
@@ -896,6 +1033,9 @@ notify_afk "$REASON" "$start_time" "$MINUTES"
 # Slack
 set_slack_status "$REASON"
 
+# Discord
+set_discord_status "$REASON" "$MINUTES"
+
 # Lock screen
 lock_screen_if
 
@@ -924,6 +1064,7 @@ if [[ -f "$CANCEL_FILE" ]]; then
   rm -f "$CANCEL_FILE"
   [[ -n "${TIMER_PID:-}" ]] && kill "$TIMER_PID" 2>/dev/null
   remove_lock
+  clear_discord_status
   clear_screen
   echo
   yellow "  ✗ AFK session canceled (not logged)."; echo
@@ -942,6 +1083,9 @@ duration=$(calculate_duration "$start_time" "$end_time")
 
 # Return notification
 notify_return "$end_time" "$start_time" "$duration"
+
+# Clear Discord Rich Presence
+clear_discord_status
 
 # Save log
 log_afk "$REASON" "$start_time" "$end_time" "$duration"
